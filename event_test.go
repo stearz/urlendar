@@ -62,6 +62,8 @@ func TestParseEventRejectsInvalidInput(t *testing.T) {
 		{name: "duplicate title", mutate: func(v url.Values) { v["title"] = []string{"one", "two"} }, parameter: "title"},
 		{name: "unknown field", mutate: func(v url.Values) { v.Set("surprise", "yes") }, parameter: "surprise"},
 		{name: "invalid start", mutate: func(v url.Values) { v.Set("start", "tomorrow") }, parameter: "start"},
+		{name: "non-strict RFC3339 offset", mutate: func(v url.Values) { v.Set("start", "2026-11-12T17:00:00+24:00") }, parameter: "start"},
+		{name: "non-strict RFC3339 comma fraction", mutate: func(v url.Values) { v.Set("start", "2026-11-12T17:00:00,1Z") }, parameter: "start"},
 		{name: "end before start", mutate: func(v url.Values) { v.Set("end", "2026-11-12T16:00:00Z") }, parameter: "end"},
 		{name: "duration lost by canonicalization", mutate: func(v url.Values) {
 			v.Set("start", "2026-11-12T17:00:00.1Z")

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -105,9 +106,14 @@ func invalid(parameter, detail string) *ValidationError {
 	return &ValidationError{Parameter: parameter, Detail: detail}
 }
 
+var strictRFC3339Timestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-](?:0\d|1\d|2[0-3]):[0-5]\d)$`)
+
 func parseTimestamp(value string) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, fmt.Errorf("empty timestamp")
+	}
+	if !strictRFC3339Timestamp.MatchString(value) {
+		return time.Time{}, fmt.Errorf("timestamp is not strict RFC 3339")
 	}
 	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {

@@ -195,6 +195,35 @@ func TestMalformedQueryEncodingIsRejected(t *testing.T) {
 	}
 }
 
+func TestMalformedSemicolonQueryIsRejectedAccurately(t *testing.T) {
+	t.Parallel()
+	server := newServer(appConfig{PublicOrigin: "https://urlendar.stearz.net", Now: time.Now})
+	request := httptest.NewRequest(http.MethodGet, "/v1/event?title=Good;bad=x&start=2026-11-12T17:00:00Z&end=2026-11-12T18:00:00Z", nil)
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "malformed query syntax") {
+		t.Fatalf("problem detail = %s", response.Body.String())
+	}
+}
+
+func TestCreateRejectsLocalTimeZone(t *testing.T) {
+	t.Parallel()
+	server := newServer(appConfig{PublicOrigin: "https://urlendar.stearz.net", Now: time.Now})
+	request := httptest.NewRequest(http.MethodGet, "/create?title=Meetup&start=2026-11-12T17:00&end=2026-11-12T18:00&tz=Local", nil)
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestCreateRejectsDSTGapAndFold(t *testing.T) {
 	t.Parallel()
 	server := newServer(appConfig{PublicOrigin: "https://urlendar.stearz.net", Now: time.Now})

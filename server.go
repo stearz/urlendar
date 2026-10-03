@@ -80,7 +80,7 @@ func (a *application) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	values, parseErr := url.ParseQuery(r.URL.RawQuery)
 	if parseErr != nil {
-		a.writeProblem(w, http.StatusBadRequest, invalid("query", "contains malformed percent-encoding"))
+		a.writeProblem(w, http.StatusBadRequest, invalid("query", "contains malformed query syntax"))
 		return
 	}
 	allowed := map[string]bool{"title": true, "start": true, "end": true, "tz": true, "description": true, "location": true, "url": true}
@@ -96,7 +96,7 @@ func (a *application) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	zoneName := strings.TrimSpace(values.Get("tz"))
 	zone, err := time.LoadLocation(zoneName)
-	if err != nil || zoneName == "" {
+	if err != nil || zoneName == "" || zoneName == "Local" {
 		a.writeProblem(w, http.StatusBadRequest, invalid("tz", "must be a valid IANA time zone"))
 		return
 	}
@@ -223,7 +223,7 @@ func (a *application) eventFromRequest(w http.ResponseWriter, r *http.Request) (
 	}
 	values, parseErr := url.ParseQuery(r.URL.RawQuery)
 	if parseErr != nil {
-		a.writeProblem(w, http.StatusBadRequest, invalid("query", "contains malformed percent-encoding"))
+		a.writeProblem(w, http.StatusBadRequest, invalid("query", "contains malformed query syntax"))
 		return Event{}, false
 	}
 	event, err := parseEvent(values)
