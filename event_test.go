@@ -68,6 +68,7 @@ func TestParseEventRejectsInvalidInput(t *testing.T) {
 			v.Set("end", "2026-11-12T17:00:00.9Z")
 		}, parameter: "end"},
 		{name: "insecure source URL", mutate: func(v url.Values) { v.Set("url", "http://example.org") }, parameter: "url"},
+		{name: "source URL without hostname", mutate: func(v url.Values) { v.Set("url", "https://:443/path") }, parameter: "url"},
 		{name: "control character", mutate: func(v url.Values) { v.Set("location", "somewhere\x00") }, parameter: "location"},
 		{name: "title too long", mutate: func(v url.Values) { v.Set("title", strings.Repeat("x", 201)) }, parameter: "title"},
 	}
@@ -93,4 +94,19 @@ func cloneValues(values url.Values) url.Values {
 		copy[key] = append([]string(nil), entries...)
 	}
 	return copy
+}
+
+func TestParseEventAppliesUTF8ByteLimits(t *testing.T) {
+	values := url.Values{
+		"title": {strings.Repeat("🙂", 50)},
+		"start": {"2026-11-12T17:00:00Z"},
+		"end":   {"2026-11-12T18:00:00Z"},
+	}
+	if _, err := parseEvent(values); err != nil {
+		t.Fatalf("200-byte title was rejected: %v", err)
+	}
+	values.Set("title", strings.Repeat("🙂", 51))
+	if _, err := parseEvent(values); err == nil || err.Parameter != "title" {
+		t.Fatalf("204-byte title error = %v", err)
+	}
 }

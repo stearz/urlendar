@@ -2,10 +2,13 @@ package main
 
 import (
 	"io"
+	"math"
 	"mime"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -257,4 +260,83 @@ func assertSecurityHeaders(t *testing.T, header http.Header) {
 			t.Errorf("missing %s", key)
 		}
 	}
+}
+
+func TestEventEndpointAcceptsMaximumEncodedSchemaSize(t *testing.T) {
+	handler := newServer(appConfig{PublicOrigin: "https://urlendar.stearz.net", Now: time.Now})
+	sourceURL := "https://example.org/" + strings.Repeat("a", maxURLBytes-len("https://example.org/"))
+	query := url.Values{
+		"title":       {strings.Repeat("t", maxTitleBytes)},
+		"start":       {"2026-11-12T17:00:00Z"},
+		"end":         {"2026-11-12T18:00:00Z"},
+		"description": {strings.Repeat("🙂", maxDescriptionBytes/len("🙂"))},
+		"location":    {strings.Repeat("l", maxLocationBytes)},
+		"url":         {sourceURL},
+	}.Encode()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: handler, MaxHeaderBytes: maxRequestHeaderBytes}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+
+	response, err := http.Get("http://" + listener.Addr().String() + "/v1/event?" + query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("status = %d for %d-byte encoded query, body = %s", response.StatusCode, len(query), body)
+	}
+}
+
+func TestPrimaryButtonMeetsWCAGContrast(t *testing.T) {
+	text := cssColor(t, "text")
+	accent := cssColor(t, "accent")
+	if ratio := contrastRatio(text, accent); ratio < 4.5 {
+		t.Fatalf("button contrast ratio = %.2f, want at least 4.5", ratio)
+	}
+}
+
+func cssColor(t *testing.T, name string) [3]float64 {
+	t.Helper()
+	marker := "--" + name + ":#"
+	start := strings.Index(styleCSS, marker)
+	if start < 0 {
+		t.Fatalf("CSS variable %s not found", name)
+	}
+	start += len(marker)
+	hex := styleCSS[start : start+6]
+	var color [3]float64
+	for index := range color {
+		component, err := strconv.ParseUint(hex[index*2:index*2+2], 16, 8)
+		if err != nil {
+			t.Fatalf("parse CSS variable %s: %v", name, err)
+		}
+		color[index] = float64(component) / 255
+	}
+	return color
+}
+
+func contrastRatio(first, second [3]float64) float64 {
+	firstLuminance := relativeLuminance(first)
+	secondLuminance := relativeLuminance(second)
+	lighter, darker := firstLuminance, secondLuminance
+	if lighter < darker {
+		lighter, darker = darker, lighter
+	}
+	return (lighter + 0.05) / (darker + 0.05)
+}
+
+func relativeLuminance(color [3]float64) float64 {
+	for index, component := range color {
+		if component <= 0.04045 {
+			color[index] = component / 12.92
+		} else {
+			color[index] = math.Pow((component+0.055)/1.055, 2.4)
+		}
+	}
+	return 0.2126*color[0] + 0.7152*color[1] + 0.0722*color[2]
 }

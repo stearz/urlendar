@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	maxTitleRunes       = 200
-	maxDescriptionRunes = 4000
-	maxLocationRunes    = 500
-	maxURLRunes         = 2048
+	maxTitleBytes       = 200
+	maxDescriptionBytes = 4000
+	maxLocationBytes    = 500
+	maxURLBytes         = 2048
 	maxEventDuration    = 366 * 24 * time.Hour
 )
 
@@ -39,8 +39,8 @@ func (e *ValidationError) Error() string {
 
 func parseEvent(values url.Values) (Event, *ValidationError) {
 	allowed := map[string]int{
-		"title": maxTitleRunes, "start": 64, "end": 64,
-		"description": maxDescriptionRunes, "location": maxLocationRunes, "url": maxURLRunes,
+		"title": maxTitleBytes, "start": 64, "end": 64,
+		"description": maxDescriptionBytes, "location": maxLocationBytes, "url": maxURLBytes,
 	}
 	for key, entries := range values {
 		limit, ok := allowed[key]
@@ -53,8 +53,8 @@ func parseEvent(values url.Values) (Event, *ValidationError) {
 		if !utf8.ValidString(entries[0]) {
 			return Event{}, invalid(key, "must be valid UTF-8")
 		}
-		if utf8.RuneCountInString(entries[0]) > limit {
-			return Event{}, invalid(key, fmt.Sprintf("must not exceed %d characters", limit))
+		if len(entries[0]) > limit {
+			return Event{}, invalid(key, fmt.Sprintf("must not exceed %d UTF-8 bytes", limit))
 		}
 		if containsDisallowedControl(entries[0]) {
 			return Event{}, invalid(key, "contains a disallowed control character")
@@ -86,7 +86,7 @@ func parseEvent(values url.Values) (Event, *ValidationError) {
 	sourceURL := strings.TrimSpace(values.Get("url"))
 	if sourceURL != "" {
 		parsed, parseErr := url.Parse(sourceURL)
-		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		if parseErr != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
 			return Event{}, invalid("url", "must be an absolute HTTPS URL without credentials")
 		}
 	}

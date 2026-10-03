@@ -18,15 +18,20 @@ GET /v1/event?title=...&start=...&end=...
 
 Required parameters:
 
-- `title`: 1–200 Unicode characters
+- `title`: 1–200 UTF-8 bytes
 - `start`: RFC 3339 timestamp with an explicit offset
 - `end`: RFC 3339 timestamp after `start`
 
 Optional parameters:
 
-- `description`: up to 4,000 characters
-- `location`: up to 500 characters
-- `url`: absolute HTTPS event URL
+- `description`: up to 4,000 UTF-8 bytes
+- `location`: up to 500 UTF-8 bytes
+- `url`: absolute HTTPS event URL, up to 2,048 UTF-8 bytes
+
+`start` and `end` are converted to UTC and truncated to whole seconds before
+their order is checked. The normalized `end` must be after the normalized
+`start`, and an event may last at most 366 days. The complete percent-encoded
+query string may be at most 24 KiB.
 
 Example:
 
@@ -56,7 +61,8 @@ Then open `http://localhost:8080`.
 Configuration:
 
 - `PORT`: HTTP port, default `8080`
-- `PUBLIC_ORIGIN`: canonical public origin, default `https://urlendar.stearz.net`
+- `PUBLIC_ORIGIN`: canonical absolute HTTP(S) origin without credentials, path,
+  query, fragment, or control characters; default `https://urlendar.stearz.net`
 
 ## Container
 
