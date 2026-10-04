@@ -46,6 +46,7 @@ func TestEventPageRendersMetadataAndEscapesInput(t *testing.T) {
 		`href="/v1/outlook?`,
 		`Meetup &lt;script&gt;alert`,
 		`data-event-time="2026-11-12T17:00:00Z"`,
+		`data-browser-timezone="ics"`,
 		`src="/static/app.js"`,
 		`https://github.com/stearz/urlendar`,
 		`aria-label="URLendar on GitHub"`,
@@ -152,6 +153,38 @@ func TestICSAndProviderRoutes(t *testing.T) {
 				t.Fatal("redirect is cacheable")
 			}
 		})
+	}
+}
+
+func TestICSUsesRequestedBrowserTimeZone(t *testing.T) {
+	t.Parallel()
+	server := newServer(appConfig{
+		PublicOrigin: "https://urlendar.stearz.net",
+		Now:          func() time.Time { return time.Date(2026, 10, 3, 9, 30, 0, 0, time.UTC) },
+	})
+	query := url.Values{
+		"title": {"Meetup"},
+		"start": {"2026-11-12T17:00:00Z"},
+		"end":   {"2026-11-12T19:00:00Z"},
+		"tz":    {"Europe/Berlin"},
+	}.Encode()
+	request := httptest.NewRequest(http.MethodGet, "/v1/event.ics?"+query, nil)
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	for _, want := range []string{
+		"BEGIN:VTIMEZONE\r\n",
+		"TZID:Europe/Berlin\r\n",
+		"DTSTART;TZID=Europe/Berlin:20261112T180000\r\n",
+		"DTEND;TZID=Europe/Berlin:20261112T200000\r\n",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("calendar does not contain %q\n%s", want, response.Body.String())
+		}
 	}
 }
 
@@ -339,9 +372,24 @@ func TestBrowserScriptFormatsEventTimesLocally(t *testing.T) {
 		"timeZoneName:'short'",
 		"querySelectorAll('[data-event-time]')",
 		"element.textContent=localTimeFormatter.format(instant)",
+		"querySelectorAll('[data-browser-timezone=\"ics\"]')",
+		"searchParams.set('tz',browserZone)",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Errorf("app script does not contain %q", want)
+		}
+	}
+}
+
+func TestGitHubIconKeepsItsAspectRatioAndSpace(t *testing.T) {
+	for _, want := range []string{
+		".github-link{display:inline-flex",
+		"flex:0 0 auto",
+		".github-link svg{display:block;flex:none;width:20px;height:20px",
+		"overflow:visible",
+	} {
+		if !strings.Contains(styleCSS, want) {
+			t.Errorf("GitHub icon CSS does not contain %q", want)
 		}
 	}
 }
