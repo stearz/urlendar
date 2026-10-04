@@ -369,6 +369,12 @@ func TestPrimaryButtonMeetsWCAGContrast(t *testing.T) {
 func TestBrowserScriptFormatsEventTimesLocally(t *testing.T) {
 	for _, want := range []string{
 		"new Intl.DateTimeFormat",
+		"weekday:'long'",
+		"year:'numeric'",
+		"month:'long'",
+		"day:'numeric'",
+		"hour:'2-digit'",
+		"minute:'2-digit'",
 		"timeZoneName:'short'",
 		"querySelectorAll('[data-event-time]')",
 		"element.textContent=localTimeFormatter.format(instant)",
@@ -377,6 +383,11 @@ func TestBrowserScriptFormatsEventTimesLocally(t *testing.T) {
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Errorf("app script does not contain %q", want)
+		}
+	}
+	for _, incompatible := range []string{"dateStyle:", "timeStyle:"} {
+		if strings.Contains(appJS, incompatible) {
+			t.Errorf("app script combines timeZoneName with incompatible option %q", incompatible)
 		}
 	}
 }
@@ -391,6 +402,10 @@ func TestGitHubIconKeepsItsAspectRatioAndSpace(t *testing.T) {
 		if !strings.Contains(styleCSS, want) {
 			t.Errorf("GitHub icon CSS does not contain %q", want)
 		}
+	}
+	octiconPath := `d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656`
+	if count := strings.Count(homeTemplate+eventTemplate, octiconPath); count != 2 {
+		t.Errorf("official GitHub mark path occurs %d times, want 2", count)
 	}
 }
 
