@@ -5,6 +5,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -109,5 +112,35 @@ func TestServeWaitsForActiveRequestsDuringShutdown(t *testing.T) {
 func TestRequestHeaderLimitCoversMaximumQuery(t *testing.T) {
 	if maxRequestHeaderBytes <= maxRawQueryBytes {
 		t.Fatalf("MaxHeaderBytes = %d, query limit = %d", maxRequestHeaderBytes, maxRawQueryBytes)
+	}
+}
+
+func TestReleaseWorkflowUsesSemanticVersionFile(t *testing.T) {
+	version, err := os.ReadFile("VERSION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(version)); !regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`).MatchString(got) {
+		t.Fatalf("VERSION = %q, want a stable semantic version", got)
+	}
+	workflow, err := os.ReadFile(".github/workflows/release.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"paths:",
+		"- VERSION",
+		"workflow_dispatch:",
+		"validate semantic version",
+		"go test -race -count=1 ./...",
+		"go vet ./...",
+		"gh release create",
+		"--draft",
+		"gh api --method PATCH",
+		"${{ steps.version.outputs.value }}",
+	} {
+		if !strings.Contains(string(workflow), want) {
+			t.Errorf("release workflow does not contain %q", want)
+		}
 	}
 }

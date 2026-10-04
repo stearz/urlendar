@@ -6,7 +6,9 @@ URLendar creates calendar events whose complete data lives in the URL. It has no
 
 ## Use it
 
-Open the form, enter an event, and share the resulting URL. Visitors can download an RFC 5545 `.ics` file or open the event in Google Calendar or Outlook.
+Open the form, enter an event, and share the resulting URL. Visitors can download an RFC 5545 `.ics` file or open the event in Google Calendar or Outlook. Event pages show times in the visitor's browser-local time zone; the original UTC value remains present in the HTML as a no-JavaScript fallback.
+
+The header links to the [URLendar GitHub repository](https://github.com/stearz/urlendar).
 
 ## URL API
 
@@ -72,6 +74,12 @@ docker run --rm -p 8080:8080 urlendar
 ```
 
 The image runs as UID/GID `65532`, writes no files, and exposes `/healthz` for health checks.
+
+## Releases
+
+`VERSION` is the next stable semantic version. Merging a change to that file into `main` publishes a multi-architecture GHCR image tagged with that exact version and creates the matching GitHub release (`v<version>`). Versions are immutable: the workflow refuses to reuse an existing release tag.
+
+For the first release, `VERSION` is `0.1.0`; GitOps can reference `ghcr.io/stearz/urlendar:0.1.0` after the release workflow has completed.
 
 ## Privacy model
 
