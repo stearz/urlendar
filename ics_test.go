@@ -71,3 +71,21 @@ func TestGenerateICSIsDeterministicForFixedInputs(t *testing.T) {
 		t.Fatal("same event generated different calendar bytes")
 	}
 }
+
+func TestGenerateLocalizedICSDescribesSpringDSTAsDaylight(t *testing.T) {
+	t.Parallel()
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := Event{
+		Title: "DST crossing",
+		Start: time.Date(2026, 3, 29, 0, 30, 0, 0, time.UTC),
+		End:   time.Date(2026, 3, 29, 3, 30, 0, 0, time.UTC),
+	}
+	got := string(generateICSInLocation(event, "https://urlendar.stearz.net/v1/event?"+event.CanonicalQuery(), time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), berlin))
+	want := "BEGIN:DAYLIGHT\r\nDTSTART:20260329T020000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0200\r\n"
+	if !strings.Contains(got, want) {
+		t.Fatalf("calendar does not describe the spring DST transition as daylight\n%s", got)
+	}
+}

@@ -131,7 +131,7 @@ func (a *application) handleCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *application) handleEvent(w http.ResponseWriter, r *http.Request) {
-	event, ok := a.eventFromRequest(w, r)
+	event, _, ok := a.eventFromRequest(w, r, false)
 	if !ok {
 		return
 	}
@@ -155,9 +155,9 @@ func (a *application) handleEvent(w http.ResponseWriter, r *http.Request) {
 		StartISO:     event.Start.Format(time.RFC3339),
 		EndISO:       event.End.Format(time.RFC3339),
 		CanonicalURL: a.origin + canonicalPath,
-		ICSAttr:      actionHref("/v1/event.ics", event),
-		GoogleAttr:   actionHref("/v1/google", event),
-		OutlookAttr:  actionHref("/v1/outlook", event),
+		ICSAttr:      actionHref("/v1/event.ics", event, true),
+		GoogleAttr:   actionHref("/v1/google", event, false),
+		OutlookAttr:  actionHref("/v1/outlook", event, false),
 		ImageURL:     a.origin + "/static/preview.png",
 		Description:  previewDescription(event),
 	}
@@ -166,18 +166,18 @@ func (a *application) handleEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *application) handleICS(w http.ResponseWriter, r *http.Request) {
-	event, ok := a.eventFromRequest(w, r)
+	event, zone, ok := a.eventFromRequest(w, r, true)
 	if !ok {
 		return
 	}
 	calendarURL := a.origin + "/v1/event?" + event.CanonicalQuery()
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="event.ics"`)
-	_, _ = w.Write(generateICS(event, calendarURL, a.now().UTC()))
+	_, _ = w.Write(generateICSInLocation(event, calendarURL, a.now().UTC(), zone))
 }
 
 func (a *application) handleGoogle(w http.ResponseWriter, r *http.Request) {
-	event, ok := a.eventFromRequest(w, r)
+	event, _, ok := a.eventFromRequest(w, r, false)
 	if !ok {
 		return
 	}
@@ -198,7 +198,7 @@ func (a *application) handleGoogle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *application) handleOutlook(w http.ResponseWriter, r *http.Request) {
-	event, ok := a.eventFromRequest(w, r)
+	event, _, ok := a.eventFromRequest(w, r, false)
 	if !ok {
 		return
 	}
@@ -220,22 +220,37 @@ func (a *application) handleOutlook(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, destination.String(), http.StatusFound)
 }
 
-func (a *application) eventFromRequest(w http.ResponseWriter, r *http.Request) (Event, bool) {
+func (a *application) eventFromRequest(w http.ResponseWriter, r *http.Request, allowTimeZone bool) (Event, *time.Location, bool) {
 	if len(r.URL.RawQuery) > maxRawQueryBytes {
 		a.writeProblem(w, http.StatusBadRequest, invalid("query", "query string is too long"))
-		return Event{}, false
+		return Event{}, nil, false
 	}
 	values, parseErr := url.ParseQuery(r.URL.RawQuery)
 	if parseErr != nil {
 		a.writeProblem(w, http.StatusBadRequest, invalid("query", "contains malformed query syntax"))
-		return Event{}, false
+		return Event{}, nil, false
+	}
+	var zone *time.Location
+	if entries, present := values["tz"]; present && allowTimeZone {
+		if len(entries) != 1 {
+			a.writeProblem(w, http.StatusBadRequest, invalid("tz", "parameter must occur exactly once"))
+			return Event{}, nil, false
+		}
+		zoneName := strings.TrimSpace(entries[0])
+		loadedZone, err := time.LoadLocation(zoneName)
+		if err != nil || zoneName == "" || zoneName == "Local" {
+			a.writeProblem(w, http.StatusBadRequest, invalid("tz", "must be a valid IANA time zone"))
+			return Event{}, nil, false
+		}
+		zone = loadedZone
+		delete(values, "tz")
 	}
 	event, err := parseEvent(values)
 	if err != nil {
 		a.writeProblem(w, http.StatusBadRequest, err)
-		return Event{}, false
+		return Event{}, nil, false
 	}
-	return event, true
+	return event, zone, true
 }
 
 func (a *application) writeProblem(w http.ResponseWriter, status int, err *ValidationError) {
@@ -311,8 +326,12 @@ func providerDescription(event Event, canonicalURL string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func actionHref(path string, event Event) template.HTMLAttr {
-	return template.HTMLAttr(`href="` + html.EscapeString(path+"?"+event.CanonicalQuery()) + `"`)
+func actionHref(path string, event Event, needsBrowserTimeZone bool) template.HTMLAttr {
+	attributes := `href="` + html.EscapeString(path+"?"+event.CanonicalQuery()) + `"`
+	if needsBrowserTimeZone {
+		attributes += ` data-browser-timezone="ics"`
+	}
+	return template.HTMLAttr(attributes)
 }
 
 func truncateRunes(value string, maximum int) string {
@@ -413,6 +432,6 @@ const eventTemplate = `<!doctype html>
 <div class="actions"><a class="button primary" {{.ICSAttr}}>Download .ics</a><a class="button" {{.GoogleAttr}}>Google Calendar</a><a class="button" {{.OutlookAttr}}>Outlook</a></div></article>
 <footer>This page stores nothing. Its URL contains the complete event.</footer></main></body></html>`
 
-const styleCSS = `:root{color-scheme:dark;--bg:#10162a;--card:#18213a;--text:#f5f7ff;--muted:#aab4d0;--accent:#6548e8;--line:#2a3658;font-family:Inter,ui-sans-serif,system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#1a2442,var(--bg) 50%);color:var(--text);min-height:100vh}main{width:min(760px,calc(100% - 32px));margin:auto;padding:40px 0}header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:28px}.brand{font-size:1.5rem;font-weight:800;color:var(--text);text-decoration:none}header p,footer,.card>p{color:var(--muted)}header p{margin:.25rem 0 0}.github-link{display:inline-flex;align-items:center;gap:8px;color:var(--text);text-decoration:none;font-weight:700;padding:8px 10px;border:1px solid var(--line);border-radius:10px}.github-link:hover{background:#202b49}.github-link svg{width:18px;height:18px;fill:currentColor}.card{background:color-mix(in srgb,var(--card) 92%,transparent);border:1px solid var(--line);border-radius:20px;padding:clamp(24px,5vw,48px);box-shadow:0 24px 80px #080d1b88}h1{font-size:clamp(2rem,6vw,3.4rem);line-height:1.05;margin:.2em 0 .35em}form{display:grid;gap:18px;margin-top:28px}label{display:grid;gap:8px;color:var(--muted);font-weight:650}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}input,textarea{width:100%;border:1px solid var(--line);border-radius:10px;background:#0f172a;color:var(--text);padding:12px 14px;font:inherit}textarea{resize:vertical}button,.button{border:1px solid var(--line);border-radius:10px;background:#202b49;color:var(--text);padding:13px 18px;font:inherit;font-weight:750;text-decoration:none;text-align:center;cursor:pointer}button,.primary{background:var(--accent);border-color:var(--accent)}footer{margin-top:26px;font-size:.9rem;text-align:center}a{color:#bcb1ff}.eyebrow{font-size:.75rem;font-weight:800;letter-spacing:.15em;color:#bcb1ff!important}.event dl{display:grid;grid-template-columns:90px 1fr;gap:10px;margin:28px 0}.event dt{color:var(--muted)}.event dd{margin:0}.description{white-space:pre-wrap;color:var(--text)!important;line-height:1.6}.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:30px}@media(max-width:620px){header{align-items:flex-start}.github-link span{display:none}.grid,.actions{grid-template-columns:1fr}.event dl{grid-template-columns:1fr}.event dt{margin-top:8px}}`
+const styleCSS = `:root{color-scheme:dark;--bg:#10162a;--card:#18213a;--text:#f5f7ff;--muted:#aab4d0;--accent:#6548e8;--line:#2a3658;font-family:Inter,ui-sans-serif,system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#1a2442,var(--bg) 50%);color:var(--text);min-height:100vh}main{width:min(760px,calc(100% - 32px));margin:auto;padding:40px 0}header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:28px}.brand{font-size:1.5rem;font-weight:800;color:var(--text);text-decoration:none}header p,footer,.card>p{color:var(--muted)}header p{margin:.25rem 0 0}.github-link{display:inline-flex;flex:0 0 auto;align-items:center;gap:8px;color:var(--text);text-decoration:none;font-weight:700;padding:8px 10px;border:1px solid var(--line);border-radius:10px;overflow:visible}.github-link:hover{background:#202b49}.github-link svg{display:block;flex:none;width:20px;height:20px;fill:currentColor}.card{background:color-mix(in srgb,var(--card) 92%,transparent);border:1px solid var(--line);border-radius:20px;padding:clamp(24px,5vw,48px);box-shadow:0 24px 80px #080d1b88}h1{font-size:clamp(2rem,6vw,3.4rem);line-height:1.05;margin:.2em 0 .35em}form{display:grid;gap:18px;margin-top:28px}label{display:grid;gap:8px;color:var(--muted);font-weight:650}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}input,textarea{width:100%;border:1px solid var(--line);border-radius:10px;background:#0f172a;color:var(--text);padding:12px 14px;font:inherit}textarea{resize:vertical}button,.button{border:1px solid var(--line);border-radius:10px;background:#202b49;color:var(--text);padding:13px 18px;font:inherit;font-weight:750;text-decoration:none;text-align:center;cursor:pointer}button,.primary{background:var(--accent);border-color:var(--accent)}footer{margin-top:26px;font-size:.9rem;text-align:center}a{color:#bcb1ff}.eyebrow{font-size:.75rem;font-weight:800;letter-spacing:.15em;color:#bcb1ff!important}.event dl{display:grid;grid-template-columns:90px 1fr;gap:10px;margin:28px 0}.event dt{color:var(--muted)}.event dd{margin:0}.description{white-space:pre-wrap;color:var(--text)!important;line-height:1.6}.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:30px}@media(max-width:620px){header{align-items:flex-start}.github-link span{display:none}.grid,.actions{grid-template-columns:1fr}.event dl{grid-template-columns:1fr}.event dt{margin-top:8px}}`
 
-const appJS = `const zone=document.querySelector('#timezone');if(zone&&!zone.value){zone.value=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';}const localTimeFormatter=new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'short',timeZoneName:'short'});document.querySelectorAll('[data-event-time]').forEach((element)=>{const instant=new Date(element.dataset.eventTime);if(!Number.isNaN(instant.valueOf())){element.textContent=localTimeFormatter.format(instant);element.dateTime=instant.toISOString();}});`
+const appJS = `const browserZone=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';const zone=document.querySelector('#timezone');if(zone&&!zone.value){zone.value=browserZone;}const localTimeFormatter=new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'short',timeZoneName:'short'});document.querySelectorAll('[data-event-time]').forEach((element)=>{const instant=new Date(element.dataset.eventTime);if(!Number.isNaN(instant.valueOf())){element.textContent=localTimeFormatter.format(instant);element.dateTime=instant.toISOString();}});document.querySelectorAll('[data-browser-timezone="ics"]').forEach((link)=>{const destination=new URL(link.href);destination.searchParams.set('tz',browserZone);link.href=destination.toString();});`
