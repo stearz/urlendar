@@ -79,7 +79,7 @@ The image runs as UID/GID `65532`, writes no files, and exposes `/healthz` for h
 
 `VERSION` is the next stable semantic version. Merging a change to that file into `main` publishes a multi-architecture GHCR image tagged with that exact version and creates the matching GitHub release (`v<version>`). Versions are immutable: the workflow refuses to reuse an existing release tag.
 
-For the first release, `VERSION` is `0.1.0`; GitOps can reference `ghcr.io/stearz/urlendar:0.1.0` after the release workflow has completed.
+The current next release is `0.1.1`; GitOps can reference `ghcr.io/stearz/urlendar:0.1.1` after the release workflow has completed.
 
 ## Privacy model
 
