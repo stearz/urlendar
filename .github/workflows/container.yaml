@@ -3,10 +3,8 @@ name: Container
 on:
   workflow_dispatch:
   push:
-    branches:
-      - '**'
-    tags:
-      - 'v*'
+    branches-ignore:
+      - main
 
 permissions:
   contents: read
@@ -44,7 +42,6 @@ jobs:
           tags: |
             type=sha,prefix=sha-,format=long
             type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=tag
 
       - name: Build and publish image
         uses: docker/build-push-action@v6

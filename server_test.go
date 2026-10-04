@@ -45,6 +45,10 @@ func TestEventPageRendersMetadataAndEscapesInput(t *testing.T) {
 		`href="/v1/google?`,
 		`href="/v1/outlook?`,
 		`Meetup &lt;script&gt;alert`,
+		`data-event-time="2026-11-12T17:00:00Z"`,
+		`src="/static/app.js"`,
+		`https://github.com/stearz/urlendar`,
+		`aria-label="URLendar on GitHub"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q\n%s", want, body)
@@ -326,6 +330,19 @@ func TestPrimaryButtonMeetsWCAGContrast(t *testing.T) {
 	accent := cssColor(t, "accent")
 	if ratio := contrastRatio(text, accent); ratio < 4.5 {
 		t.Fatalf("button contrast ratio = %.2f, want at least 4.5", ratio)
+	}
+}
+
+func TestBrowserScriptFormatsEventTimesLocally(t *testing.T) {
+	for _, want := range []string{
+		"new Intl.DateTimeFormat",
+		"timeZoneName:'short'",
+		"querySelectorAll('[data-event-time]')",
+		"element.textContent=localTimeFormatter.format(instant)",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Errorf("app script does not contain %q", want)
+		}
 	}
 }
 

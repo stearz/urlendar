@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - VERSION
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate semantic version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          if [[ ! "$VERSION" =~ $SEMVER ]]; then
+            echo "VERSION must be a stable semantic version such as 0.1.0" >&2
+            exit 1
+          fi
+          echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Verify release candidate
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)"
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+
+      - name: Create or reuse draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --json isDraft >/dev/null 2>&1; then
+            DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft)"
+            TARGET="$(gh release view "$TAG" \
+              --json targetCommitish \
+              --jq .targetCommitish)"
+            if [[ "$DRAFT" != true || "$TARGET" != "$GITHUB_SHA" ]]; then
+              echo "existing release ${TAG} is not this run's draft" >&2
+              exit 1
+            fi
+          else
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "URLendar ${VERSION}" \
+              --generate-notes \
+              --draft
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish release image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.value }}
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository }}:latest
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          RELEASE_ID="$(gh release view "v${VERSION}" \
+            --json databaseId \
+            --jq .databaseId)"
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false >/dev/null
